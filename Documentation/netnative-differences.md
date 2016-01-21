@@ -1,14 +1,18 @@
 Known differences when migrating to .NET Native
 ===========
 
+
+
 ### Using libraries not targeted to .NET Core profile is unsupported
-Trying to load assemblies that have references to Full .NET Framework framework assemblies (ex: System, 4.0.0.0, b77a5c561934e089) or APIs that only exist in the Full .NET Framework is not supported. Doing so will cause the .NET Native compiler to emit warnings.
+Trying to load assemblies that have references to Full .NET Framework framework assemblies (ex: System, 4.0.0.0, b77a5c561934e089) or APIs that only exist in the Full .NET Framework is not supported. Doing so will cause the .NET Native compiler to emit warnings like the one below.
 
-{@TODO add sample warning}
+```
+Assembly 'Test.dll' requests the address of the virtual method 'Stream.BeginRead(byte[], int, int, AsyncCallback, object)' which is not available in the targeted .NET platform.
+```
 
-### ArgumentException instead of TargetException
+### ArgumentException replaces TargetException in some API error cases
 MethodInfo.Invoke and FieldInfo.Get/SetValue() on the Full .NET Framework throws TargetException when the "this" object is null or of the wrong type. 
-The TargetException class does not exist in the Win8P surface area, thus ArgumentException will be thrown instead. ArgumentException was chosen because that is what Delegate.DynamicInvoke() throws for the analogous violation, making it possible for us to implement this efficiently.
+The TargetException class does not exist in the .NET Core surface area, thus ArgumentException will be thrown instead. ArgumentException was chosen because that is what Delegate.DynamicInvoke() throws for the analogous violation, making it possible for us to implement this efficiently.
 
 ### Mixed mode assemblies are not supported
 Only pure IL assemblies are supported.
@@ -48,26 +52,19 @@ In order to save space for Release builds we remove the parameter names from pub
 Modules are deprecated in .NET Native. TypeInfo.Module and Assembly.ManifestModule APIs return <Unknown>. Retrieving module level custom attributes will return an empty collection.
 
 ### Task.FromAsync overloads not particularly efficient 
-They’re not particularly *efficient* - each call will end up consuming a whole ThreadPool thread – but they are functional.
+Each call to Task.FromAsync will consuming a ThreadPool thread for the duration.
 
 ### F# is not currently supported
-Support for F# requires features that are not yet implemented in the .NET Native compiler.
+Support for F# requires features that are not yet implemented in the .NET Native compiler. See notes about .tailcall and deeply nested generics.
 
 ### Types may have different private implementation details
 In some cases, .NET Native provides different implementations of .NET Framework class libraries. An object returned from a method will always implement the members of the returned type. However, since its backing implementation is different, you may not be able to cast it to the same set of types as you could on other .NET Framework platforms.
 
-1. For example, in some cases, you may not be able to cast the IEnumerable<T> interface object returned by methods such as TypeInfo.DeclaredMembers or TypeInfo.DeclaredProperties to T[].
-2. To work around this problem, make sure to reference contracts instead of implementation assemblies (for example: System.Runtime instead of mscorlib). Binding against contracts will ensure that the type will always be resolved.
+* For example, in some cases, you may not be able to cast the IEnumerable<T> interface object returned by methods such as TypeInfo.DeclaredMembers or TypeInfo.DeclaredProperties to T[].
+* To work around this problem, make sure to reference contracts instead of implementation assemblies (for example: System.Runtime instead of mscorlib). Binding against contracts will ensure that the type will always be resolved.
 
 ### Reference equality for Type objects
-.Net Native allows the use of reference equality on Type objects to detect semantic equality, but not on other Reflection objects (such as TypeInfo and MemberInfo) 
-Note that this was never a guaranteed semantic even on the Full .NET Framework but it worked often enough that people took dependencies on it anyway. (Reflection/Type System)
-
-* To compare reflection objects such as MemberInfo objects for semantic equality, use the Equals() override, not “==”.
-* Using “==” may work accidentally and sporadically due the framework caching and reusing Reflection object instances.
-* However, this is not guaranteed to work 100%. Further, .NET Native’s Reflection implementation was designed with an increased emphasis on memory utilization and is less inclined to reuse object instances than the full CLR implementation. 
-
-Because of this, the “==” error may more likely to manifest itself in the .Net Native implementation.
+.Net Native allows the use of reference equality on Type objects to detect semantic equality, but not on other Reflection objects (such as TypeInfo and MemberInfo). Note that this was never a guaranteed semantic even on the Full .NET Framework but it worked often enough that it was easy to accidentally rely on it. To compare reflection objects such as MemberInfo objects for semantic equality, use the Equals() override, not “==”.
 
 ### EqualityComparer&lt;T&gt;.Default doesn't use the IEquatable&lt;T&gt; interface even if T implements it
 This is a deliberate trade-off of strict compatibility vs. performance. Unlike the Full .NET Framework (which uses MakeGenericType() to turn the IEquatable&lt;T&gt; cast check to a one-time cost), we would have to do the IEquatable&lt;T&gt; cast on each call to Equals(). This would aggravate what's already a known sore spot when it comes to .NET Native performance vs. Full .NET Framework performance.
@@ -79,15 +76,13 @@ In order to avoid compatibility problems, make sure your IEquatable&lt;T&gt;.Equ
 See "Notes to implementers" section here: https://msdn.microsoft.com/en-us/library/ms131190(v=vs.110).aspx
 
 ### Arrays
-* Multi-dimensional arrays will not be supported for V1 beyond four dimensions.
+* Multi-dimensional arrays with more than four dimensions are not supported.
 * Arrays with non-zero lower bounds are not supported (Array.CreateInstance(type, int,int)). 
 * Arrays of unmanaged pointers are not supported (though arrays of IntPtr will work just fine).
 * Array.Copy does not do type conversions (copying byte[] into an int[] will throw an exception))
 
 ### Generics
 Reflection will no longer unify generic types closed over its own formal parameters with the generic type definition.
-
-{@TODO: You can't use reflection to get or set a pointer field. ?}
 
 ### Types can be loaded even if there is a cycle in generic initialization 
 On Full .NET Framework the following code will throw TypeLoadException at runtime. This code will correctly compile with .NET Native.
@@ -113,18 +108,15 @@ It's not possible to create such types in C# or VB, but the IL format supports t
 The undocumented keyword __arglist is not supported in C#.
 
 ### P/Invoke methods cannot be reflection invoked
-To work around the problem, you can introduce a managed method to wrap the call to the P/invoke and reflection-invoke the wrapper.
+To work around the problem, you can introduce a managed method to wrap the call to the P/Invoke and reflection-invoke the wrapper.
 
 ### Application package file layout has changed
-The layout of binaries inside of your .appx is significantly different when using .NET Native vs. previous versions of .NET. The most obvious one is that all of the managed code in an application will be rolled into a single large .dll. As a result, enumerating and loading files in a .appx behaves differently. Code that relies on seeing the managed *.dll files in the application package will not see them.
+The layout of files inside of your .appx is significantly different when using .NET Native vs. previous versions of .NET. The most obvious one is that all of the managed code in an application will be rolled into a single large .dll. As a result, enumerating and loading files in a .appx behaves differently. Code that relies on enumerating the managed *.dll files in an application package will not work properly.
 
 ### Inconsistencies for GetRuntime*() methods
-{@TODO make a bulleted list of the APIs}
-On the Full .NET Framework, GetRuntimeProperties() and GetRuntimeEvents() behave inconsistently from the other GetRuntime*() APIs. Unlike the other GetRuntime*() APIs, they suppress hidden instance properties and events defined inside base classes.
+On the Full .NET Framework, GetRuntimeProperties() and GetRuntimeEvents() behave inconsistently suppress hidden instance properties and events defined inside base classes. The other GetRuntime*() methods will return these members. On .NET Native, the GetRuntime*() APIs have converged and now return the properties and events.
 
-On .NET Native, the GetRuntime*() APIs all behave consistently. That is, the results include hidden instance members from base classes.
-
-### RuntimeReflectionExtensions.GetRuntimeInterfaceMap is not supported
+### RuntimeReflectionExtensions.GetRuntimeInterfaceMap(...) is not supported
 This is not currently supported.
 
 ### RuntimeReflectionsExtensions.GetRuntimeMethods() doesn't include hidden members in base classes
@@ -193,3 +185,4 @@ The replacement for these culture names is zh-Hant and zh-Hans respectively.
 {@TODO Networking}
 {@TODO Organize into sections}
 {@TODO WCF}
+{@TODO: You can't use reflection to get or set a pointer field. ?}
