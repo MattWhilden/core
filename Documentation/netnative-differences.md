@@ -156,6 +156,8 @@ Duplicate members are not allowed as per the ECMA 335 specification. .NET Native
 ### Types with 256 or more generic type arguments will be rejected
 This may also affect deeply nested generic types where the C# compiler introduces new generic type parameters behind the scenes.
 
+Globalization and Localization
+==========
 ### Differences in supported encodings
 .NET Core supports a subset of the Encodings available on Full .NET Framework. The list of supported encodings is:
 * ASCII (code page 20127), which is returned by the Encoding.ASCII property.
@@ -179,10 +181,62 @@ The Full .NET Framework has a hard coded table that maps a region name to a defa
 ### Culture names zh-CHT and zh-CHS are unsupported
 The replacement for these culture names is zh-Hant and zh-Hans respectively.
 
-{@TODO Interop}
-{@TODO Reflection - RD.XML and stuff}
-{@TODO Serialization}
-{@TODO Networking}
-{@TODO Organize into sections}
-{@TODO WCF}
-{@TODO: You can't use reflection to get or set a pointer field. ?}
+Networking
+----------
+
+### HttpClient differences 
+* HTTP Redirects: Default value of property HttpClientHandler.AllowAutoRedirect remains true, however, redirects from an https:// URI to an http:// URI are no longer followed automatically. This is an intentional change to improve security. If an app needs to follow an https:// to http:// redirect (not recommended), the developer must set the HttpClientHandler.AllowAutoRedirect property to false, and then handle the redirection manually.
+* Caching behavior on Phone can be controlled by using any combination of the following Cache-Control header directives:
+  * no-cache - forces request to be sent to the server, bypassing the local cache
+  * max-age: 0 - forces request to be sent to the server, bypassing the local cache
+  * no-store - response is not stored in the local cache
+* No support for chunked transfer encoding on request
+* "Expect: 100-continue" header not supported
+* HTTP 1.0 requests not supported
+* Blocking on the result of a network operation on the UI thread (ex: httpClient.GetStringAsync("foo").Result) will result in a deadlock
+
+### HttpResponseMessage.Headers.ToString returns headers in different order 
+{@TODO: track down why this is}
+
+### Remove support for System.Net.Http.Rtc
+This set of APIs is not currently supported.
+
+### HttpWebRequests may fail due to unsupported headers
+Empty headers and those with a value that contains just spaces and colons(e.g. httpWebRequest.Headers["BadHeader"] = " : ") will fail when the request is made. This is due to the HttpWebRequet implementation using Windows.Web.Http for the underlying implementation.
+
+### HttpWebRequest.ContinueTimeOut property is not respected
+Calls to this API will not fail but will not change the timeout behavior. This is due to the HttpWebRequest implementation using Windows.Web.Http for the underlying implementation.
+
+### System.Net.Http.HttpClientHandler.Credentials and HttpWebRequest.Credentials only accepts credentials that are of type System.Net.NetworkCredential
+Even though these properties are of type ICredentials they only accept credentials that are of type System.Net.NetworkCredential.
+
+### HttpClientHandler.MaxRequestContentBufferSize to anything other than int.MaxValue throws an exception
+Setting MaxRequestContentBufferSize is not currently supported.
+
+### HttpWebRequest.Proxy not supported 
+Setting the Proxy to anything other than null is not currently supported.
+
+### HTTP stack has increased caching
+On Full .Net Framework the HTTP stack almost never caches responses on the client. In .NET Native, the HTTP stack may aggressively cache values for some calls. This may lead to unexpected HTTP status codes in responses or different HTTP headers in responses.
+
+### HTTP stack exception differences
+Some scenarios may see different exceptions for certain corner cases. 
+
+{@TODO: Example}
+
+### HTTP stack now validates custom header fields, throws on invalid values
+Full .NET Framework does not validate headers. This may lead some applications to throw FormatExceptions from calls that previously would have not thrown.
+
+### HTTP stack ignores explicit proxy credentials consumed indirectly via WebRequest.DefaultWebProxy.Credentials
+.NET Native applications will automatically use the default credentials for any needed proxy authentication if the EnterpriseAuthentication capability is registered for the application.  However, if explicit (non-default) credentials are needed for proxy authentication, then the application will need to use an explicit proxy object that implements the IWebProxy interface.  That proxy object can then be passed to the HttpWebRequest or HttpClient (via the HttpClientHandler) APIs.
+ 
+### HTTP stack can sometimes return request and response headers in a different order
+The RFC allows headers, for the most part, to be in any order. Applications and libraries should be written to not depend on a specific order of headers.
+
+{@TODO Interop}  
+{@TODO Reflection - RD.XML and stuff}  
+{@TODO Serialization}  
+{@TODO Organize into sections}  
+{@TODO WCF}  
+{@TODO: You can't use reflection to get or set a pointer field. ?}  
+{@TODO Intro text/overview}
